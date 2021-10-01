@@ -4,6 +4,7 @@ Este repositorio agrupa una serie de códgio, datos, y análisis, realizados por
 "buscador twitter" es el código para la búsqueda y procesamiento inicial de datos en Twitter
 "gecode_workaround" es un código que facilita la búsqueda en Twitter geolocalizada sin acceder a la API de Google
 "Reporte_markdown" es el código utilizado para el análisis, en formato rmarkdown por facilidad para analizar y compartir los datos
+"analisis" expande el código anterior, con otros análisis que finalmente no fueron incluidos, pero vaya que está más desorganizado
 "unido3" es la base en formato excel resultado del análisis de las encuestas de victimización, el análisis en twitter, y el análisis de los trends de google.
 
 Además:
