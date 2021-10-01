@@ -11,9 +11,11 @@ Además:
 https://rpubs.com/PEzquerra/816580 - ofrece un análisis exploratorio de los trends de Google en materia de seguridad y delito por estado de México. Incluye información sobre la percepción de inseguridad.
 
 Biterm topic model de los 10 temas emergentes del análisis de datos en twitter
+
 ![TopicModel2021](https://user-images.githubusercontent.com/50584096/135615332-e4288978-40b5-4e87-970c-fbf5584264a5.png)
 
 Tweets 2019-2020 asociados al delito y la seguridad
+
 ![image](https://user-images.githubusercontent.com/50584096/135616038-7b284c0d-6ee3-4f36-90d9-16d82bcb185b.png)
 
 
