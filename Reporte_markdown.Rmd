@@ -1,0 +1,285 @@
+---
+title: "Reporte Markdown"
+author: "Grupo 6"
+date: "01/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r, include=F, warning=F}
+library(rtweet)
+library(tidyverse)
+library(tm)
+library(qdap)
+library(qdapRegex)
+library(stringi)
+library(stringr)
+library(readr)
+library(udpipe)
+library(BTM)
+library(textplot)
+library(ggraph)
+library(stm)
+library(readxl)
+library(trelliscopejs)
+
+#limpiador de tweets
+removeUsername <- function(x) gsub('@[^[:space:]]*', '', x) 
+
+limpiador <- function(text) {
+  #elimina emojis
+  text_f <- str_remove_all(string = text, pattern = '[:emoji:]')
+  #elimina urls
+  text_f <- rm_twitter_url(text_f)
+  #elimina tildes
+  text_f <- stri_trans_general(text_f, "Latin-ASCII")
+  text_f <- removeUsername(text_f)
+  return(text_f)
+}
+
+# carga y une bases
+
+aguas_calientes <- read_csv("aguas_calientes.csv") #1
+nayarit <- read_csv("nayarit.csv") #2
+nuevo_leon <- read_csv("nuevo_leon.csv") #3
+durango <- read_csv("durango.csv") #4
+puebla <- read_csv("puebla.csv") #5
+ciudad_mexico <- read_csv("ciudad_mexico.csv") #6
+california_sur <- read_csv("california_sur.csv") #7
+yucatan <- read_csv("yucatan.csv") #8
+
+#variable que indica origen del tweet
+aguas_calientes$origen <- "aguas_calientes" #1
+nayarit$origen <- "nayarit" #2
+nuevo_leon$origen <- "nuevo_leon" #3
+durango$origen <- "durango" #4
+puebla$origen <- "puebla" #5
+ciudad_mexico$origen <- "ciudad_mexico" #6
+california_sur$origen <- "california_sur" #7
+yucatan$origen <- "yucatan" #8
+
+mexico <- rbind(aguas_calientes, nayarit, nuevo_leon, durango, puebla,
+                ciudad_mexico, california_sur, yucatan)
+
+# crea variable que selecciona tweets que mencionan palabras clave en seguridad
+mexico$text2 <- limpiador(mexico$text)
+
+mexico$seguridad <- str_detect(mexico$text2, 
+                               "delito|delin|delict|seguridad|
+                                    crimen|crimi|violen|^robo\\|^roba\\|homici|
+                                    asesin|narco|estaf|acoso|
+                                    acosa|agres|agred|secuestr|asalt|rater|
+                                    tracala|ladron")
+# filtra celebridades y prensa (cuartil 4 en numero de seguidores y verificados)
+mexico_filtered <- mexico %>%
+  filter(verified == F)
+
+#elimino el quintil 5 de seguidores
+quantile(mexico$followers_count)
+
+mexico_filtered <- mexico %>%
+  filter(followers_count < 1296)
+
+usuarios2 <- read_csv("usuarios2.csv")
+
+unido <- read_csv("unido2.csv")
+```
+
+# Descriptivos
+```{r}
+expss::cro(mexico$origen, mexico$seguridad)
+expss::fre(mexico$seguridad)
+expss::fre(mexico$origen, mexico$seguridad)
+```
+
+### Las diferencias entre los estados se corresponden con las diferencias observadas en la encuesta?
+```{r}
+seguridad.glm <- 
+  glm(seguridad ~ relevel(factor(origen), ref = 4), data = mexico, family = "binomial")
+
+seguridad.glm %>%
+  broom::tidy(exponentiate = T, conf.int = T) %>%
+  mutate_if(is.numeric, ~ round(.,3)) %>%
+  knitr::kable(align = c("l", rep("c", 6)))
+```
+
+### Filtrando?
+```{r}
+seguridad_filtered.glm <- 
+  glm(seguridad ~ relevel(factor(origen), ref = 4), data = mexico_filtered, family = "binomial")
+
+seguridad_filtered.glm %>%
+  broom::tidy(exponentiate = T, conf.int = T) %>%
+  mutate_if(is.numeric, ~ round(.,3)) %>%
+  knitr::kable(align = c("l", rep("c", 6)))
+```
+
+### que ocurre con los datos de Google Trends?
+```{r}
+unido$trends_ponderado <- unido$google_todo/unido$google_cobertura*100
+boxplot(unido$trends_ponderado~unido$estado2, outline = F)
+
+unido$delito_ponderado <- unido$google_delito/unido$google_cobertura *100000
+boxplot(unido$delito_ponderado~unido$estado2, outline = F)
+
+lm(trends_ponderado ~ relevel(factor(estado2), ref = 4), data = unido) %>% summary()
+
+unido$robo_ponderado <- unido$google_robo/unido$google_cobertura *100000
+lm(robo_ponderado ~ relevel(factor(estado2), ref = 4), data = unido) %>% summary()
+
+unido$homicidio_ponderado <- unido$google_homicidio/unido$google_cobertura *100000
+lm(homicidio_ponderado ~ relevel(factor(estado2), ref = 4), data = unido) %>% summary()
+
+unido$delito_ponderado <- unido$google_delito/unido$google_cobertura *100000
+lm(delito_ponderado ~ relevel(factor(estado2), ref = 4), data = unido) %>% summary()
+```
+
+
+### refieren a crimenes mas violentos quienes se sienten mas inseguros?
+```{r, eval=FALSE}
+mexico$sentiment <- syuzhet::get_sentiment(mexico$text, method = "nrc", language = "spanish") #puede tomar su rato
+
+mexico$seguridad_sentiment <- mexico$seguridad * mexico$sentiment
+
+mexico_sentiment <- mexico %>%
+  filter(followers_count < 1296) %>%
+  filter(verified == F) %>% 
+  filter(seguridad_sentiment != 0)
+
+#642 observaciones
+#distribuidos:
+table(mexico_sentiment$origen)
+
+mexico_sentiment$seguridad_sentiment.r <- mexico_sentiment$seguridad_sentiment + 13
+
+lm(seguridad_sentiment.r ~ relevel(factor(origen), ref = 4), data = mexico_sentiment) %>% summary()
+```
+
+## Topic Modelling
+### BTM 2021
+```{r, eval = FALSE}
+text2021_vector <- filter(mexico, seguridad == T)$text2
+
+text2021_vector <- removeWords(text2021_vector, stopwords("spanish"))
+
+txt_udpipe <- udpipe(text2021_vector, object = "spanish")
+
+biterms <- data.table::as.data.table(txt_udpipe)
+biterms <- biterms[, cooccurrence(x = lemma, 
+                                  relevant = upos %in% c("NOUN", "PROPN", "ADJ"),
+                                  skipgram = 2), 
+                   by = list(doc_id)]
+
+set.seed(123)
+x <- subset(txt_udpipe, upos %in% c("NOUN", "PROPN", "ADJ"))
+x <- x[, c("doc_id", "lemma")]
+model <- BTM(x, k = 10, beta = 0.01, iter = 2000, background = TRUE, 
+             biterms = biterms, trace = 100)
+topicterms <- terms(model, top_n = 5)
+topicterms
+
+plot(model, top_n = 5)
+```
+
+### BTM 2020
+```{r, eval = FALSE}
+usuarios_2020 <- usuarios2 %>% 
+  filter(seguridad == T) %>%
+  filter(desde2020 > 0) %>%
+  filter(format(created_at, format="%Y") > 2019) %>%
+  filter(format(created_at, format="%Y") < 2021)
+
+text2020_vector <- removeWords(usuarios_2020$text2, stopwords("spanish"))
+
+txt_udpipe2020 <- udpipe(text2020_vector, object = "spanish")
+
+biterms2020 <- data.table::as.data.table(txt_udpipe2020)
+biterms2020 <- biterms2020[, cooccurrence(x = lemma, 
+                                  relevant = upos %in% c("NOUN", "PROPN", "ADJ"),
+                                  skipgram = 2), 
+                   by = list(doc_id)]
+
+set.seed(123)
+x <- subset(txt_udpipe2020, upos %in% c("NOUN", "PROPN", "ADJ"))
+x <- x[, c("doc_id", "lemma")]
+model <- BTM(x, k = 8, beta = 0.01, iter = 2000, background = TRUE, 
+             biterms = biterms2020, trace = 100)
+topicterms <- terms(model, top_n = 5)
+topicterms
+
+
+plot(model, top_n = 5)
+```
+
+```{r, eval = FALSE}
+mexico_seguridad <- filter(mexico_filtered, seguridad == T) %>% select(text,origen)
+mexico_seguridad$origen <- as.factor(mexico_seguridad$origen)
+
+stm2021.pro <- textProcessor(mexico_seguridad$text, language = "es", metadata = mexico_seguridad)
+stm2021.prep <- prepDocuments(stm2021.pro$documents, stm2021.pro$vocab, stm2021.pro$meta, lower.thresh = 5)
+stm2021.out <- stm(documents = stm2021.prep$documents, vocab = stm2021.prep$vocab, 
+                   data = stm2021.prep$meta, K = 10, prevalence =~ origen)
+
+labelTopics(stm2021.out)
+findThoughts(stm2021.out, texts = stm2021.prep$meta$text)
+
+plot(stm2021.out, type = "summary", xlim = c(0, 0.3))
+
+toLDAvisJson(stm2021.out, docs = stm2021.prep$documents) %>% LDAvis::serVis(open.browser = T)
+```
+
+```{r}
+load("C:/Users/Hp/Desktop/Hackathon/BD_ENVIPE_2021.RData")
+TPer_Vic1$seguridad_municipio <- na_if(TPer_Vic1$AP4_3_3, 9)
+table(TPer_Vic1$seguridad_municipio)
+TPer_Vic1$seguridad_municipio <- as.numeric(TPer_Vic1$seguridad_municipio)
+TPer_Vic1$seguridad_municipio <- TPer_Vic1$seguridad_municipio - 1
+#1 = inseguro
+encuesta_filtered <- filter(TPer_Vic1,
+                            NOM_ENT == "Aguascalientes" |
+                              NOM_ENT == "Baja California Sur" |
+                              NOM_ENT == "Ciudad de México" |
+                              NOM_ENT == "Durango" |
+                              NOM_ENT == "Nayarit" |
+                              NOM_ENT == "Nuevo León" |
+                              NOM_ENT == "Puebla" |
+                              NOM_ENT == "Yucatán")
+seguridad_municipio_model <- glm(seguridad_municipio ~ relevel(factor(NOM_ENT), ref = 4), data = encuesta_filtered, family = "binomial")
+
+seguridad_municipio_model %>%
+  broom::tidy(exponentiate = T, conf.int = T) %>%
+  mutate_if(is.numeric, ~ round(.,3)) %>%
+  knitr::kable(align = c("l", rep("c", 6)))
+
+expss::cro(encuesta_filtered$NOM_ENT, encuesta_filtered$seguridad_municipio)
+
+#seguridad_municipio <- table(encuesta_filtered$NOM_ENT, encuesta_filtered$seguridad_municipio) %>% unclass() %>% data.frame() %>% setNames(c("seguro", "inseguro"))
+
+#write.csv(seguridad_municipio, "seguridad_municipio.csv")
+```
+
+```{r, eval=FALSE}
+select(unido, -estado) %>%
+  filter(estado2 != "california_sur") %>%
+  ggplot(aes(as.Date(fecha, "%d/%m/%Y"), trends_ponderado*100000)) +
+  geom_point() +
+  geom_line() +
+  facet_trelliscope(~ estado2,
+                    name = "mx_crime",
+                    desc = "Google Trends crime vs year by state in Mexico",
+                    nrow = 2, ncol = 3,
+                    # Set the scales
+                    scales = "sliced",
+                    # Specify automatic cognistics
+                    auto_cog = TRUE,
+                    self_contained = T)
+
+```
+
+
+
